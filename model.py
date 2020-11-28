@@ -54,6 +54,11 @@ from tensorflow.keras.callbacks import ModelCheckpoint
 from tensorflow.keras import optimizers
 import tensorflow as tf
 
+def pr_auc(y_true, y_pred):
+    """lightGBM の round ごとに PR-AUC を計算する用"""
+    score = average_precision_score(y_true, y_pred)
+    return "pr_auc", score, True
+
 # xgboostによるモデル
 class Model1Xgb:
 

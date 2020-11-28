@@ -66,6 +66,52 @@ def label_encoding(df , cols):
             
     return df
 
+def target_encoding(train_x, test_x, train_y, cat_cols, seed=42):
+    
+    # 変数をループしてtarget encoding
+    for c in cat_cols:
+        # 学習データ全体で各カテゴリにおけるtargetの平均を計算
+        tmp_col_name = c + "_target"
+        data_tmp = pd.DataFrame({c: train_x[c], 'target': train_y})
+        target_mean = data_tmp.groupby(c)['target'].mean()
+        # テストデータのカテゴリを置換
+        test_x[tmp_col_name] = test_x[c].map(target_mean)
+
+        # 学習データの変換後の値を格納する配列を準備
+        tmp = np.repeat(np.nan, train_x.shape[0])
+
+        # 学習データを分割
+        kf = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
+        for idx_1, idx_2 in kf.split(train_x, train_y):
+            # out-of-foldで各カテゴリにおける目的変数の平均を計算
+            target_mean = data_tmp.iloc[idx_1].groupby(c)['target'].mean()
+            # 変換後の値を一時配列に格納
+            tmp[idx_2] = train_x[c].iloc[idx_2].map(target_mean)
+
+        # 変換後のデータで元の変数を置換
+        train_x[tmp_col_name] = tmp
+            
+    return train_x, test_x
+
+def aggregation_feature_engineering(_df, keys, cols, agg_type):
+    """集計特徴量の作成
+    args:
+        keys:list
+        cols:list
+        agg_type:list
+    """
+    result_df = pd.DataFrame()
+    for col in cols:
+        groupby_df = _df.groupby(keys)[col]
+        agg_df = groupby_df.agg(agg_type)
+        agg_df = agg_df.add_prefix(col+"_").add_suffix("_by"+"_".join(keys))
+        result_df = pd.concat([result_df, agg_df], axis=1)
+    
+    result_df = result_df.reset_index()
+    result_df = pd.merge(_df, result_df, on=keys, how='left')
+        
+    return result_df
+
 def product(df, cols):
     """積"""
     for comb in itertools.combinations(cols, 2):
@@ -100,7 +146,21 @@ def cal_rho(lon_a,lat_a,lon_b,lat_b):
     
     return rho
 
-
+def timestamp_converter(_df, col, drop=False,\
+                        unix=True, year=True, month=True, day=True, week=True,\
+                        hour=True, minute=True, second=True, yymmdd=True):
+    tmp = pd.to_datetime(_df[col])
+    if unix: _df[col+"_unix"] = tmp.map(pd.Timestamp.timestamp)
+    if year: _df[col+"_year"] = tmp.dt.year
+    if month: _df[col+"_month"] = tmp.dt.month 
+    if day: _df[col+"_day"] = tmp.dt.day 
+    if week: _df[col+"_week"] = tmp.dt.dayofweek 
+    if hour: _df[col+"_hour"] = tmp.dt.hour 
+    if minute: _df[col+"_minute"] = tmp.dt.minute 
+    if second: _df[col+"_second"] = tmp.dt.second
+    if yymmdd: _df[col + "_yymmdd"] = tmp.dt.strftime('%Y%m%d').astype(np.int32) 
+    if drop: _df = _df.drop(col, axis=1)
+    return _df
 
 
 

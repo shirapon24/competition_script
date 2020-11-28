@@ -11,6 +11,20 @@ from scipy import stats
 from scipy.stats import norm, skew #for some statistics
 from sklearn.preprocessing import LabelEncoder
 
+def timer(name: str):
+    t0 = time.time()
+    print(f"[{name}] start")
+    yield
+    msg = f"[{name}] done in {time.time() - t0:.0f} s"
+    print(msg)
+
+
+def set_seed(seed=42):
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    np.random.seed(seed)
+    
+
 def reduce_memory(df):
     """int64 float64 -> int32 float32"""
     _df = df.copy()
@@ -47,6 +61,13 @@ def get_unique_columns(df):
             result_list.append(col)
             
     return result_list
+
+def get_cols_by_name(_df, string):
+    cols = []
+    for col in _df.columns:
+        if string in col:
+            cols.append(col)
+    return cols
 
 def missing_data(df):
     """
