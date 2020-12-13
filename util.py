@@ -62,9 +62,9 @@ def get_unique_columns(df):
             
     return result_list
 
-def get_cols_by_name(_df, string):
+def get_cols_by_name(column, string):
     cols = []
-    for col in _df.columns:
+    for col in column:
         if string in col:
             cols.append(col)
     return cols

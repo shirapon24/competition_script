@@ -6,7 +6,7 @@ import json
 import os
 import gc
 
-import evaluate as eva
+# import evaluate as eva
 
 # cv
 from sklearn.model_selection import GridSearchCV
@@ -32,10 +32,14 @@ from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import ElasticNet, Lasso, BayesianRidge, LassoLarsIC
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.kernel_ridge import KernelRidge
 from sklearn.svm import LinearSVC
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.svm import SVC
 from catboost import CatBoostClassifier
+from catboost import CatBoostRegressor
 import lightgbm as lgb
 import optuna.integration.lightgbm as lgbopt
 import xgboost as xgb
@@ -58,6 +62,77 @@ def pr_auc(y_true, y_pred):
     """lightGBM の round ごとに PR-AUC を計算する用"""
     score = average_precision_score(y_true, y_pred)
     return "pr_auc", score, True
+
+# 学習データに対する「目的変数を知らない」予測値と、テストデータに対する予測値を返す関数
+def predict_cv(model, train_x, train_y, test_x, seed=71):
+    preds = []
+    preds_test = []
+    va_idxes = []
+    scores = []
+
+    folds = StratifiedKFold(n_splits=4, shuffle=True, random_state=seed)
+    folds = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
+
+    # クロスバリデーションで学習・予測を行い、予測値とインデックスを保存する
+    for i, (tr_idx, va_idx) in enumerate(folds.split(train_x, train_y)):
+        tr_x, va_x = train_x.iloc[tr_idx], train_x.iloc[va_idx]
+        tr_y, va_y = train_y.iloc[tr_idx], train_y.iloc[va_idx]
+        tr_x = tr_x.values
+        va_x = va_x.values
+        model.fit(tr_x, tr_y, va_x, va_y)
+        pred = model.predict(va_x)
+        preds.append(pred)
+        score = metrics.mean_squared_log_error(np.expm1(va_y), np.expm1(pred))
+        scores.append(score)
+        pred_test = model.predict(test_x)
+        preds_test.append(pred_test)
+        va_idxes.append(va_idx)
+
+    # バリデーションデータに対する予測値を連結し、その後元の順序に並べ直す
+    va_idxes = np.concatenate(va_idxes)
+    preds = np.concatenate(preds, axis=0)
+    order = np.argsort(va_idxes)
+    pred_train = preds[order]
+
+    # テストデータに対する予測値の平均をとる
+    preds_test = np.mean(preds_test, axis=0)
+
+    return pred_train, preds_test, scores
+
+# 学習データに対する「目的変数を知らない」予測値と、テストデータに対する予測値を返す関数
+def predict_proba_cv(model, train_x, train_y, test_x, params=None):
+    preds = []
+    preds_test = []
+    va_idxes = []
+    scores = []
+
+    kf = StratifiedKFold(n_splits=6, shuffle=True, random_state=71)
+
+    # クロスバリデーションで学習・予測を行い、予測値とインデックスを保存する
+    for i, (tr_idx, va_idx) in enumerate(kf.split(train_x, train_y)):
+        tr_x, va_x = train_x.iloc[tr_idx], train_x.iloc[va_idx]
+        tr_y, va_y = train_y.iloc[tr_idx], train_y.iloc[va_idx]
+        tr_x = tr_x.values
+        va_x = va_x.values
+        model.fit(tr_x, tr_y, va_x, va_y, params)
+        pred = model.predict_proba(va_x)
+        preds.append(pred)
+        score = log_loss(va_y, pred)
+        scores.append(score)
+        pred_test = model.predict_proba(test_x)
+        preds_test.append(pred_test)
+        va_idxes.append(va_idx)
+
+    # バリデーションデータに対する予測値を連結し、その後元の順序に並べ直す
+    va_idxes = np.concatenate(va_idxes)
+    preds = np.concatenate(preds, axis=0)
+    order = np.argsort(va_idxes)
+    pred_train = preds[order]
+
+    # テストデータに対する予測値の平均をとる
+    preds_test = np.mean(preds_test, axis=0)
+
+    return pred_train, preds_test, scores
 
 # xgboostによるモデル
 class Model1Xgb:
@@ -142,12 +217,12 @@ class ModelRamdomForest():
         return pred
 
 # CatBoostによるモデル
-class ModelCatBoost():
+class ModelCatBoostClassifier():
 
     def __init__(self):
         self.model = None
 
-    def fit(self, tr_x, tr_y, va_x, va_y, params=None):
+    def fit(self, tr_x, tr_y, va_x, va_y, params=None, ):
         if params == None:
             params = {
                 'random_seed': 42,
@@ -161,6 +236,27 @@ class ModelCatBoost():
 
     def predict_proba(self, x):
         pred = self.model.predict_proba(x)
+        return pred
+
+class ModelCatBoostRegressor():
+
+    def __init__(self):
+        self.model = None
+
+    def fit(self, tr_x, tr_y, va_x, va_y, params=None):
+        if params == None:
+            params = {
+                'random_seed': 42,
+                'learning_rate': 0.03,
+                'depth': 2,
+                'iterations': 1000,
+                'loss_function': 'MultiClass',
+                }
+        self.model = CatBoostRegressor(**params)
+        self.model.fit(tr_x, tr_y)
+
+    def predict(self, x):
+        pred = self.model.predict(x)
         return pred
 
 
@@ -189,6 +285,39 @@ class ModelLGBMoptuna:
             tuning_history=history
             )
         self.model = lgb.LGBMClassifier(**best_params)
+        self.model.fit(tr_x, tr_y)
+
+    def predict(self, x):
+        # data = lgb.Dataset(x)
+        pred = self.model.predict(x)
+        return pred
+
+    def predict_proba(self, x):
+        pred = self.model.predict_proba(x)
+        return pred
+
+class ModelLGBMoptunaRegressor:
+
+    def __init__(self):
+        self.model = None
+
+    def fit(self, tr_x, tr_y, va_x, va_y, params=None):
+        trains = lgb.Dataset(tr_x, tr_y)
+        valids = lgb.Dataset(va_x, va_y)
+        if params == None:
+            params = {
+                'random_state': 71,
+                'objective': 'regression',
+            }
+        best_params, history = {}, []
+        self.model = lgbopt.train(
+            params, trains,
+            valid_sets=valids,
+            verbose_eval=0,
+            best_params=best_params,
+            tuning_history=history
+            )
+        self.model = lgb.LGBMRegressor(**best_params)
         self.model.fit(tr_x, tr_y)
 
     def predict(self, x):
@@ -391,4 +520,102 @@ class ModelKNN:
     def predict_proba(self, x):
         # x = self.scaler.transform(x)
         pred = self.model.predict_proba(x)
+        return pred
+
+
+# 線形モデル
+class ModelLasso:
+
+    def __init__(self):
+        self.model = None
+        self.scaler = None
+
+    def fit(self, tr_x, tr_y, va_x, va_y, params=None):
+        self.scaler = RobustScaler()
+        self.scaler.fit(tr_x)
+        tr_x = self.scaler.transform(tr_x)
+        self.model = Lasso(
+            alpha=params["alpha"],
+            random_state=params["random_state"])
+        self.model.fit(tr_x, tr_y)
+
+    def predict(self, x):
+        x = self.scaler.transform(x)
+        pred = self.model.predict(x)
+        return pred
+
+    def predict_proba(self, x):
+        x = self.scaler.transform(x)
+        pred = self.model.predict(x)
+        return pred
+
+# 線形モデル
+class ModelElasticNet:
+
+    def __init__(self):
+        self.model = None
+        self.scaler = None
+
+    def fit(self, tr_x, tr_y, va_x, va_y, params=None):
+        self.scaler = RobustScaler()
+        self.scaler.fit(tr_x)
+        tr_x = self.scaler.transform(tr_x)
+        self.model = ElasticNet(
+            alpha=params["alpha"],
+            l1_ratio=params["l1_ratio"],
+            random_state=params["random_state"])
+        self.model.fit(tr_x, tr_y)
+
+    def predict(self, x):
+        x = self.scaler.transform(x)
+        pred = self.model.predict(x)
+        return pred
+
+    def predict_proba(self, x):
+        x = self.scaler.transform(x)
+        pred = self.model.predict(x)
+        return pred
+
+class ModelKernelRidge:
+
+    def __init__(self):
+        self.model = None
+        self.scaler = None
+
+    def fit(self, tr_x, tr_y, va_x, va_y, params=None):
+        self.model = KernelRidge(
+            alpha=params["alpha"],
+            kernel=params["kernel"],
+            coef0=params["coef0"],
+            degree=params["degree"])
+        self.model.fit(tr_x, tr_y)
+
+    def predict(self, x):
+        pred = self.model.predict(x)
+        return pred
+
+    def predict_proba(self, x):
+        pred = self.model.predict(x)
+        return pred
+
+class ModelSVR:
+
+    def __init__(self):
+        self.model = None
+        self.scaler = None
+
+    def fit(self, tr_x, tr_y, va_x, va_y, params=None):
+        self.model = KernelRidge(
+            alpha=params["alpha"],
+            kernel=params["kernel"],
+            coef0=params["coef0"],
+            degree=params["degree"])
+        self.model.fit(tr_x, tr_y)
+
+    def predict(self, x):
+        pred = self.model.predict(x)
+        return pred
+
+    def predict_proba(self, x):
+        pred = self.model.predict(x)
         return pred
