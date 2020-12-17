@@ -6,8 +6,6 @@ import json
 import os
 import gc
 
-import evaluate as eva
-
 # cv
 from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import RandomizedSearchCV
