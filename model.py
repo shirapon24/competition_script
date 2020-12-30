@@ -6,8 +6,6 @@ import json
 import os
 import gc
 
-# import evaluate as eva
-
 # cv
 from sklearn.model_selection import GridSearchCV
 from sklearn.model_selection import RandomizedSearchCV
@@ -32,7 +30,7 @@ from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import LinearRegression
-from sklearn.linear_model import ElasticNet, Lasso, BayesianRidge, LassoLarsIC
+from sklearn.linear_model import ElasticNet, Lasso, BayesianRidge, LassoLarsIC, Ridge
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.svm import LinearSVC
@@ -64,23 +62,25 @@ def pr_auc(y_true, y_pred):
     return "pr_auc", score, True
 
 # 学習データに対する「目的変数を知らない」予測値と、テストデータに対する予測値を返す関数
-def predict_cv(model, train_x, train_y, test_x, seed=71):
+def predict_cv(model, train_x, train_y, test_x, params=None, n_splits=4, seed=71):
     preds = []
     preds_test = []
     va_idxes = []
     scores = []
 
-    folds = StratifiedKFold(n_splits=4, shuffle=True, random_state=seed)
+    #folds = StratifiedKFold(n_splits=4, shuffle=True, random_state=seed)
     folds = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
     # クロスバリデーションで学習・予測を行い、予測値とインデックスを保存する
-    for i, (tr_idx, va_idx) in enumerate(folds.split(train_x, train_y)):
+    for i, (tr_idx, va_idx) in enumerate(folds.split(train_x)):
+
         tr_x, va_x = train_x.iloc[tr_idx], train_x.iloc[va_idx]
         tr_y, va_y = train_y.iloc[tr_idx], train_y.iloc[va_idx]
         tr_x = tr_x.values
         va_x = va_x.values
-        model.fit(tr_x, tr_y, va_x, va_y)
+        model.fit(tr_x, tr_y, va_x, va_y, params)
         pred = model.predict(va_x)
+        pred = np.where(pred < 0, 0, pred)
         preds.append(pred)
         score = metrics.mean_squared_log_error(np.expm1(va_y), np.expm1(pred))
         scores.append(score)
@@ -98,6 +98,7 @@ def predict_cv(model, train_x, train_y, test_x, seed=71):
     preds_test = np.mean(preds_test, axis=0)
 
     return pred_train, preds_test, scores
+
 
 # 学習データに対する「目的変数を知らない」予測値と、テストデータに対する予測値を返す関数
 def predict_proba_cv(model, train_x, train_y, test_x, params=None):
@@ -197,7 +198,7 @@ class ModelLGBM:
         return pred
 
 # RamdomForestによるモデル
-class ModelRamdomForest():
+class ModelRandomForest():
 
     def __init__(self):
         self.model = None
@@ -448,6 +449,86 @@ class ModelNN:
         pred = self.model.predict(x)
         return pred
 
+class ModelNNRegressor:
+
+    def __init__(self):
+        self.model = None
+        self.scaler = None
+
+    def fit(self, tr_x, tr_y, va_x, va_y, params=None):
+        self.scaler = StandardScaler()
+        self.scaler.fit(tr_x)
+
+        tr_x = self.scaler.transform(tr_x)
+        va_x = self.scaler.transform(va_x)
+        tr_y = to_categorical(tr_y)
+        va_y = to_categorical(va_y)
+        
+        dropout_rate = 0.45
+        inputs = Input(shape=(tr_x.shape[1]))
+    
+        x = Dense(1024, activation="relu", kernel_initializer="he_normal")(inputs)
+        x = BatchNormalization()(x)
+        x = Dropout(dropout_rate)(x)
+        x = Dense(512, activation="relu", kernel_initializer="he_normal")(x)
+        x = BatchNormalization()(x)
+        x = Dropout(dropout_rate)(x)
+        x = Dense(256, activation="relu", kernel_initializer="he_normal")(x)
+        x = BatchNormalization()(x)
+        x = Dropout(dropout_rate)(x)
+        x = Dense(128, activation="relu", kernel_initializer="he_normal")(x)
+        x = BatchNormalization()(x)
+        x = Dropout(dropout_rate)(x)
+        x = Dense(64, activation="relu", kernel_initializer="he_normal")(x)
+        x = BatchNormalization()(x)
+        x = Dropout(dropout_rate)(x)
+        x = Dense(32, activation="relu", kernel_initializer="he_normal")(x)
+        x = BatchNormalization()(x)
+        x = Dropout(dropout_rate)(x)
+        
+        x = Dense(1, activation='relu')(x)
+        
+        model = Model(inputs=inputs, outputs=x)
+
+        model.compile(loss='mean_absolute_error',
+                    optimizer=optimizers.Adam(lr=0.0001, beta_1=0.9, beta_2=0.999, epsilon=None, decay=0.00, amsgrad=False),
+                    metrics=["mae"]
+                    )
+        
+        save_path = "../output/"
+        modelCheckpoint_loss = ModelCheckpoint(
+            filepath = save_path + "model.h5" ,
+            save_best_only=True,
+            monitor="val_loss",
+            verbose=1
+        )
+        
+        batch_size = 256
+        epochs = 100
+        history = model.fit(tr_x, tr_y, 
+                            validation_data = (va_x, va_y),
+                            batch_size=batch_size,
+                            epochs=epochs,
+                            verbose=0,
+                            callbacks=[modelCheckpoint_loss],
+                        )
+
+        self.model = model
+
+    def predict(self, x):
+        save_path = "../output/"
+        x = self.scaler.transform(x)
+        self.model.load_weights(save_path + "model.h5")
+        pred = self.model.predict(x)
+        return pred
+
+    def predict_proba(self, x):
+        save_path = "../output/"
+        x = self.scaler.transform(x)
+        self.model.load_weights(save_path + "model.h5")
+        pred = self.model.predict(x)
+        return pred
+
 # 線形モデル
 class ModelSVC:
 
@@ -535,6 +616,32 @@ class ModelLasso:
         self.scaler.fit(tr_x)
         tr_x = self.scaler.transform(tr_x)
         self.model = Lasso(
+            alpha=params["alpha"],
+            random_state=params["random_state"])
+        self.model.fit(tr_x, tr_y)
+
+    def predict(self, x):
+        x = self.scaler.transform(x)
+        pred = self.model.predict(x)
+        return pred
+
+    def predict_proba(self, x):
+        x = self.scaler.transform(x)
+        pred = self.model.predict(x)
+        return pred
+
+# 線形モデル
+class ModelRidge:
+
+    def __init__(self):
+        self.model = None
+        self.scaler = None
+
+    def fit(self, tr_x, tr_y, va_x, va_y, params=None):
+        self.scaler = RobustScaler()
+        self.scaler.fit(tr_x)
+        tr_x = self.scaler.transform(tr_x)
+        self.model = Ridge(
             alpha=params["alpha"],
             random_state=params["random_state"])
         self.model.fit(tr_x, tr_y)
