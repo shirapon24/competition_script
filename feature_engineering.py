@@ -10,6 +10,13 @@ import itertools
 from scipy import stats
 from scipy.stats import norm, skew #for some statistics
 from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import KFold
+from sklearn.model_selection import GroupKFold
+from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.model_selection import train_test_split
+
+# from util as utl
 
 def delcol(df, cols, prefix=""):
     """prefixも含めて一括で削除したい場合"""
@@ -40,7 +47,10 @@ def count_encoding(df, cols, drop=False):
         counter = collections.Counter(df[col].values)
         count_dict = dict(counter.most_common())
         encoded = df[col].map(lambda x: count_dict[x]).values
-        df[col+ "_counts"] = encoded
+        df[col + "_counts"] = encoded
+        
+        if drop:
+            df = df.drop(col, axis=1)
 
     return df
 
@@ -66,7 +76,7 @@ def label_encoding(df , cols):
             
     return df
 
-def target_encoding(train_x, test_x, train_y, cat_cols, seed=42):
+def target_encoding_roop(train_x, test_x, train_y, cat_cols, n_splits=5, drop=False, seed=42):
     
     # 変数をループしてtarget encoding
     for c in cat_cols:
@@ -81,7 +91,7 @@ def target_encoding(train_x, test_x, train_y, cat_cols, seed=42):
         tmp = np.repeat(np.nan, train_x.shape[0])
 
         # 学習データを分割
-        kf = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
+        kf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
         for idx_1, idx_2 in kf.split(train_x, train_y):
             # out-of-foldで各カテゴリにおける目的変数の平均を計算
             target_mean = data_tmp.iloc[idx_1].groupby(c)['target'].mean()
@@ -90,9 +100,48 @@ def target_encoding(train_x, test_x, train_y, cat_cols, seed=42):
 
         # 変換後のデータで元の変数を置換
         train_x[tmp_col_name] = tmp
+
+        if drop:
+            train_x = train_x.drop(c, axis=1)
+            test_x = test_x.drop(c, axis=1)
             
     return train_x, test_x
 
+def target_encoding(train_x, test_x, train_y, c, n_splits=5, drop=False, seed=42):
+    
+    # 学習データ全体で各カテゴリにおけるtargetの平均を計算
+    tmp_col_name = c + "_target" + train_y.name
+    data_tmp = pd.DataFrame({c: train_x[c], 'target': train_y})
+    target_mean = data_tmp.groupby(c)['target'].mean()
+    # テストデータのカテゴリを置換
+    test_x[tmp_col_name] = test_x[c].map(target_mean)
+
+    # 学習データの変換後の値を格納する配列を準備
+    tmp = np.repeat(np.nan, train_x.shape[0])
+
+    # 学習データを分割
+    # kf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    # for idx_1, idx_2 in kf.split(train_x, train_y):
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    for idx_1, idx_2 in kf.split(train_x):
+        # out-of-foldで各カテゴリにおける目的変数の平均を計算
+        target_mean = data_tmp.iloc[idx_1].groupby(c)['target'].mean()
+        # 変換後の値を一時配列に格納
+        tmp[idx_2] = train_x[c].iloc[idx_2].map(target_mean)
+
+    # 変換後のデータで元の変数を置換
+    train_x[tmp_col_name] = tmp
+
+    if drop:
+        train_x = train_x.drop(c, axis=1)
+        test_x = test_x.drop(c, axis=1)
+            
+    return train_x, test_x
+
+# def agg_diff(x):
+#     return abs(mean(x) - x)
+# def agg_ratio(x):
+#     return mean(x) / x
 def aggregation_feature_engineering(_df, keys, cols, agg_type):
     """集計特徴量の作成
     args:
@@ -109,7 +158,10 @@ def aggregation_feature_engineering(_df, keys, cols, agg_type):
     
     result_df = result_df.reset_index()
     result_df = pd.merge(_df, result_df, on=keys, how='left')
-        
+
+    # if True:
+    #     _df[col] = utl.get_cols_by_name()
+
     return result_df
 
 def product(df, cols):
