@@ -254,7 +254,7 @@ class ModelCatBoostRegressor():
                 'loss_function': 'MultiClass',
                 }
         self.model = CatBoostRegressor(**params)
-        self.model.fit(tr_x, tr_y)
+        self.model.fit(tr_x, tr_y, cat_features=None)
 
     def predict(self, x):
         pred = self.model.predict(x)

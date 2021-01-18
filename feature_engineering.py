@@ -110,7 +110,7 @@ def target_encoding_roop(train_x, test_x, train_y, cat_cols, n_splits=5, drop=Fa
 def target_encoding(train_x, test_x, train_y, c, n_splits=5, drop=False, seed=42):
     
     # 学習データ全体で各カテゴリにおけるtargetの平均を計算
-    tmp_col_name = c + "_target" + train_y.name
+    tmp_col_name = c + "_target_" + train_y.name
     data_tmp = pd.DataFrame({c: train_x[c], 'target': train_y})
     target_mean = data_tmp.groupby(c)['target'].mean()
     # テストデータのカテゴリを置換
