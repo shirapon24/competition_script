@@ -4,17 +4,18 @@ from matplotlib import pyplot as plt
 from matplotlib_venn import venn2
 import pandas_profiling
 
-def plot_venn_train_test(tra, val):
+def plot_venn_train_test(tra, val, col):
     """trainとtestのベン図をplotする
     """
     fig, ax = plt.subplots(figsize=(6,9))
-    train_unique = tra.unique()
-    test_unique = val.unique()
+    plt.title(col, fontsize=10)
+    train_unique = tra[col].unique()
+    test_unique = val[col].unique()
     common_num = len(set(train_unique) & set(test_unique))
     venn2(subsets=(len(train_unique)-common_num, len(test_unique)-common_num, common_num),set_labels=('Train', 'Test'))
     return fig, ax
 
-def visualize_importance(models, feat_train_df):
+def plot_importance(models, feat_train_df):
     """lightGBM の model 配列の feature importance を plot する
     CVごとのブレを boxen plot として表現します.
     

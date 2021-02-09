@@ -1,3 +1,83 @@
+import numpy as np
+import pandas as pd
+import warnings
+from matplotlib import pyplot as plt
+import json
+import os
+import gc
+import datetime as dt
+import collections
+import math
+from tqdm import tqdm
+import time
+import glob
+import logging
+import joblib
+
+# warnings.filterwarnings('ignore')
+# NAME = "032"           # notebookの名前
+# INPUT = "../input"             # input data (train.csv, test.csv)
+# OUTPUT = "../output"
+# SUBMISSION = "../submission"   # submission file を保存
+# TRAINED = "../output"  # 学習済みモデルを保存
+# LOGS = "../output"        # ログを保存
+# FOLDS = 5
+
+class Util:
+    @classmethod
+    def dump(cls, value, path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        joblib.dump(value, path, compress=True)
+
+    @classmethod
+    def load(cls, path):
+        return joblib.load(path)
+    
+class Logger:
+
+    def __init__(self):
+        self.general_logger = logging.getLogger('general')
+        self.result_logger = logging.getLogger('result')
+        stream_handler = logging.StreamHandler()
+        file_general_handler = logging.FileHandler(os.path.join(LOGS, 'general.log'))
+        file_result_handler = logging.FileHandler(os.path.join(LOGS, 'result.log'))
+        if len(self.general_logger.handlers) == 0:
+            self.general_logger.addHandler(stream_handler)
+            self.general_logger.addHandler(file_general_handler)
+            self.general_logger.setLevel(logging.INFO)
+            self.result_logger.addHandler(stream_handler)
+            self.result_logger.addHandler(file_result_handler)
+            self.result_logger.setLevel(logging.INFO)
+
+    def info(self, message):
+        # display time
+        self.general_logger.info('[{}] - {}'.format(self.now_string(), message))
+
+    def result(self, message):
+        self.result_logger.info(message)
+
+    def result_ltsv(self, dic):
+        self.result(self.to_ltsv(dic))
+
+    def result_scores(self, run_name, scores):
+        # 計算結果をコンソールと計算結果用ログに出力
+        dic = dict()
+        dic['name'] = run_name
+        dic['score'] = np.mean(scores)
+        for i, score in enumerate(scores):
+            dic[f'score{i}'] = score
+        self.result(self.to_ltsv(dic))
+
+    def result_score(self, run_name, score):
+        dic = f"name:{run_name}, score:{score}\n"
+        self.result(dic)
+
+    def now_string(self):
+        return str(dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+    def to_ltsv(self, dic):
+        return '\t'.join(['{}:{}'.format(key, value) for key, value in dic.items()])
+
 def targets_binning(train_ys):
     df = pd.DataFrame()
     for col in train_ys.columns:
@@ -23,8 +103,8 @@ def make_skf(train_x, train_y, random_state=2020):
     
 
 # CatBoostRefressorのwrapper
-class MyCatRegressor:
-    def __init__(self, name=None, params=None, fold=None, train_x=None, train_y=None, test_x=None, metrics=None, seeds=None):
+class MyCatBoost:
+    def __init__(self, name=None, params=None, fold=None, train_x=None, train_y=None, test_x=None, metrics=None, seeds=None, reg_type="regression"):
         self.train_x = train_x
         self.train_y = train_y
         self.test_x = test_x
@@ -67,7 +147,10 @@ class MyCatRegressor:
                 Util.dump(model, model_name) # save model
                 
                 # predict - validation
-                pred = model.predict(va_x)
+                if reg_type=="regression":
+                    pred = model.predict(va_x)
+                elif reg_type == "classification":
+                    pred = model.predict(va_x)[:, 1]
                 oof.append(pred)
 
                 # validation score
@@ -146,3 +229,49 @@ class MyCatRegressor:
         score = self.metrics(y_true, y_pred)
         return score
         
+
+# # define model
+# model_params = {
+#     "n_estimators": 10000,
+# #     'loss_function': 'MAE',
+# #     'eval_metric': 'MAE',
+#     "learning_rate": 0.03,
+#     'early_stopping_rounds': 50,
+#     "random_state": 2020,
+# }
+
+# models = {}
+# for col in TARGETS:
+#     _model = MyCatRegressor(name=NAME, 
+#                             params=model_params,
+#                             fold=make_skf,
+#                             train_x=train_df,
+#                             train_y=train_target_df[col],
+#                             test_x=test_df,
+#                             metrics=metrics.roc_auc_score, 
+#                             seeds=[71, 75, 79])
+#     models[col] = _model
+
+# import japanize_matplotlib
+# oof_single_cat = pd.DataFrame()
+# preds_single_cat = pd.DataFrame()
+
+# for col in TARGETS:
+#     print(f"■ {col}")
+#     # feature importance
+#     fig, importance_df = models[col].tree_importance()
+
+#     # feature selections
+#     selected_num = 50
+#     cols = importance_df.groupby("column").mean().reset_index().sort_values("feature_importance", ascending=False)["column"].tolist()
+#     selected_cols = cols[:selected_num]
+#     models[col].train_x = models[col].train_x[selected_cols]
+#     models[col].test_x = models[col].test_x[selected_cols]
+    
+#     # train & inference
+#     oof = models[col].predict_cv()  # training
+#     preds = models[col].inference()  # inference
+    
+#     # 予測値を保存
+#     oof_single_cat[col] = oof
+#     preds_single_cat[col] = preds

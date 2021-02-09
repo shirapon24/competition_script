@@ -51,6 +51,13 @@ def type_judge(df):
             
     return cat_col, num_col
 
+def delete_columns(df, cols, prefix=""):
+    """prefixも含めて一括で削除したい場合"""
+    for col in cols:
+        df = df.drop(prefix + col, axis=1)
+    
+    return df
+
 def get_unique_columns(df):
     """ユニークなカラムを取得する"""
     result_list = []
