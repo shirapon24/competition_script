@@ -3,6 +3,12 @@ import pandas as pd
 from matplotlib import pyplot as plt
 from matplotlib_venn import venn2
 import pandas_profiling
+import sweetviz as sv
+
+
+def output_sweetviz(tra, val, output_filename="Report"):
+    my_report = sv.compare([tra, "Train"], [val, "Test"])
+    my_report.show_html(output_filename+".html")
 
 def plot_venn_train_test(tra, val, col):
     """trainとtestのベン図をplotする

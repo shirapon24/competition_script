@@ -118,6 +118,78 @@ def get_aggregation_feature(_df, keys, cols, agg_type):
 
     return result_df
 
+def merge_aggregation(_df, agg_col, groupby, method):
+    
+    _df = _df.merge(
+        _df[[groupby] + agg_col].groupby(groupby).agg(method).add_prefix("GRP="groupby+"_"+method+"_").reset_index(),how="left", on=groupby)
+
+    return _df
+
+# 最小値と最大値の差
+def range_diff(x):
+    return x.max() - x.min()
+def mean_diff_min(x):
+    return x.mean() - x.min()
+def hmean(x):
+    return stats.hmean(x)
+def mode_value(x):
+    return stats.mode(x)[0]
+def kurtosis(x):
+    return stats.kurtosis(x)
+
+# 第一/三四分位点とその差
+def third_quartile(x):
+    return x.quantile(0.75)
+def first_quartile(x):
+    return x.quantile(0.25)
+def quartile_range(x):
+    return x.quantile(0.75) - x.quantile(0.25)
+
+
+def get_countvectorl_feature():
+    """
+    出現する単語のカウントを特徴量にする
+    そのうち書く
+    """
+
+    CountVectorizer
+
+    return null
+
+def get_tfidf_feature(_df, col, n_features=64):
+    """
+    文書中に含まれる単語の重要度
+    @params
+        _df
+        col
+        n_features=64
+    """
+    vectorizer = TfidfVectorizer(max_features=n_features)
+    vectorizer.fit(_df[col].fillna("NaN"))
+    X = vectorizer.transform(_df[col].fillna("NaN"))
+    Tfid_df = pd.DataFrame(X.toarray()).add_prefix("Tfid="+col)
+    
+    return Tfid_df
+
+
+def get_svd_tfidf_feature(_df, col, n_features=64):
+    """
+    文書中に含まれる単語の重要度
+    tfidf→TruncatedSVDで次元削減した特徴量を返す。
+    @params
+        _df
+        col
+        n_features=64
+    """
+    vectorizer = TfidfVectorizer(max_features=int(_df[col].nunique()*0.8))
+    vectorizer.fit(_df[col].fillna("NaN"))
+    X = vectorizer.transform(_df[col].fillna("NaN"))
+    svd = TruncatedSVD(n_components=n_features, n_iter=7, random_state=42)
+    result_df = pd.DataFrame(svd.fit_transform(X)).add_prefix("SVD_TFIDF="+col)
+    
+    return result_df
+
+
 def get_product(df, cols):
     """積"""
     for comb in itertools.combinations(cols, 2):
@@ -133,7 +205,8 @@ def get_quotient(df, cols):
     return df
 
 def get_euclidean_distance(lon_a,lat_a,lon_b,lat_b):
-    """経度緯度のユークリッド距離を取得する
+    """
+    経度緯度のユークリッド距離を取得する
     """
     ra=6378.140  # equatorial radius (km)
     rb=6356.755  # polar radius (km)

@@ -275,3 +275,85 @@ class MyCatBoost:
 #     # 予測値を保存
 #     oof_single_cat[col] = oof
 #     preds_single_cat[col] = preds
+
+
+##### LightGBM #####
+
+
+def get_kfold(n_splits, random_state=71, train):
+    folds = KFold(n_splits=n_splits, random_state=random_state, shuffle=True)
+    result = folds.split(train)
+    return result
+
+def get_groupkfold(n_splits, train, target, groups):
+    folds = GroupKFold(n_splits=n_splits)
+    result = folds.split(train, y, groups)
+    return result
+
+class MyLightGBM():
+    """
+    @params train, test, target, params, n_splits=5, verbose=100, early_stopping_rounds=100
+    """
+
+    def __init__(self, train, test, target, params: dict=None, n_splits=5, verbose=100, early_stopping_rounds=100):
+        self.train = train
+        self.test = test
+        self.target = target
+        self.params = params
+        self.n_splits = n_splits
+        self.verbose = verbose
+        self.early_stopping_rounds = early_stopping_rounds
+
+    def fit_lgbm():
+        """
+        @return oof_preds, sub_preds, models, scores
+        """
+        
+        # パラメータがないときはからの dict で置き換える
+        if params is None:
+            params = {}
+
+        models = []
+        scores = []
+        iterations = []
+        oof_preds = np.zeros((train.shape[0],))
+        sub_preds = np.zeros((test.shape[0],))
+        
+        #folds = KFold(n_splits=n_splits, random_state=114514)
+        #for n_fold, (trn_idx, val_idx) in enumerate(folds.split(train)):
+
+        folds = get_kfold
+            
+        # folds = GroupKFold(n_splits=n_splits)
+        # for n_fold, (trn_idx, val_idx) in enumerate(folds.split(train, y, groups)):
+
+            
+            print("Fold is :", n_fold+1)
+            trn_x, trn_y = train.iloc[trn_idx], y.iloc[trn_idx]
+            val_x, val_y = train.iloc[val_idx], y.iloc[val_idx]
+            trn_x = trn_x.values
+            val_x = val_x.values
+            
+            clf = lgb.LGBMRegressor(**params)
+            
+            clf.fit(trn_x, trn_y, 
+                    eval_set= [(trn_x, trn_y), (val_x, val_y)], 
+                    eval_metric="mae", 
+                    verbose=verbose, early_stopping_rounds=early_stopping_rounds
+                )
+        
+            oof_preds[val_idx] = clf.predict(val_x, num_iteration=clf.best_iteration_)
+            sub_preds += clf.predict(test, num_iteration=clf.best_iteration_) / folds.n_splits
+            
+            gc.collect()
+            
+            score = metrics.mean_absolute_error(y[val_idx], oof_preds[val_idx])
+            
+            print("CV:{} MAE:{}".format(n_fold+1,score))
+            
+            iterations.append(clf.best_iteration_)
+            scores.append(score)
+            models.append(clf)
+        
+        return oof_preds, sub_preds, models, scores
+
