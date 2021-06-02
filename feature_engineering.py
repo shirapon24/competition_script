@@ -18,7 +18,7 @@ from sklearn.model_selection import train_test_split
 
 
 
-def get_holiday_series(date_series)):
+def get_holiday_series(date_series):
     """祝日なら1のシリーズを返す"""
     return date_series.map(jpholiday.is_holiday).astype(int)
     
